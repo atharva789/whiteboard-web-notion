@@ -1,57 +1,77 @@
-import React, { useRef, useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 
-const Whiteboard = ({ boardId }) => {
+const Whiteboard = () => {
   const canvasRef = useRef(null);
   const [isDrawing, setIsDrawing] = useState(false);
-  const [lastPos, setLastPos] = useState({ x: 0, y: 0 });
+  const [lastPos, setLastPos] = useState(null);
   const [color, setColor] = useState('#000000');
   const [isEraser, setIsEraser] = useState(false);
   const [pathBuffer, setPathBuffer] = useState([]);
 
+  // Resize canvas on mount
   useEffect(() => {
     const canvas = canvasRef.current;
-    canvas.width = window.innerWidth;
-    canvas.height = window.innerHeight;
-
     const ctx = canvas.getContext('2d');
-    ctx.lineCap = 'round';
+
+    const resizeCanvas = () => {
+      canvas.width = window.innerWidth;
+      canvas.height = window.innerHeight;
+    };
+
+    resizeCanvas();
+    window.addEventListener('resize', resizeCanvas);
+
+    // Setup drawing styles
     ctx.lineJoin = 'round';
+    ctx.lineCap = 'round';
 
-    const handlePointerDown = (e) => {
-      // Block finger touches for palm rejection
-      if (e.pointerType === 'touch') return;
-
-      e.preventDefault();
-      setIsDrawing(true);
-      setLastPos({ x: e.clientX, y: e.clientY });
-      setPathBuffer([{ x: e.clientX, y: e.clientY }]);
+    return () => {
+      window.removeEventListener('resize', resizeCanvas);
     };
+  }, []);
 
-    const handlePointerMove = (e) => {
-      if (!isDrawing || e.pointerType === 'touch') return;
-      e.preventDefault();
+  const handlePointerDown = (e) => {
+    if (e.pointerType === 'touch') return; // block palm/finger
 
-      const newPoint = { x: e.clientX, y: e.clientY };
-      const updatedBuffer = [...pathBuffer, newPoint].slice(-30);
-      setPathBuffer(updatedBuffer);
-      detectScribble(updatedBuffer);
+    const canvas = canvasRef.current;
+    const rect = canvas.getBoundingClientRect();
+    const pos = { x: e.clientX - rect.left, y: e.clientY - rect.top };
 
-      const ctx = canvas.getContext('2d');
-      ctx.strokeStyle = isEraser ? '#FFFFFF' : color;
-      ctx.lineWidth = isEraser ? 30 : 3;
+    setIsDrawing(true);
+    setLastPos(pos);
+    setPathBuffer([pos]);
+  };
 
-      ctx.beginPath();
-      ctx.moveTo(lastPos.x, lastPos.y);
-      ctx.lineTo(newPoint.x, newPoint.y);
-      ctx.stroke();
+  const handlePointerMove = (e) => {
+    if (!isDrawing || e.pointerType === 'touch') return;
 
-      setLastPos(newPoint);
-    };
+    const canvas = canvasRef.current;
+    const ctx = canvas.getContext('2d');
+    const rect = canvas.getBoundingClientRect();
+    const newPos = { x: e.clientX - rect.left, y: e.clientY - rect.top };
 
-    const handlePointerUp = () => {
-      setIsDrawing(false);
-      setPathBuffer([]);
-    };
+    const updatedPath = [...pathBuffer, newPos].slice(-30);
+    setPathBuffer(updatedPath);
+    detectScribble(updatedPath);
+
+    ctx.strokeStyle = isEraser ? '#FFFFFF' : color;
+    ctx.lineWidth = isEraser ? 30 : 3;
+
+    ctx.beginPath();
+    ctx.moveTo(lastPos.x, lastPos.y);
+    ctx.lineTo(newPos.x, newPos.y);
+    ctx.stroke();
+
+    setLastPos(newPos);
+  };
+
+  const handlePointerUp = () => {
+    setIsDrawing(false);
+    setPathBuffer([]);
+  };
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
 
     canvas.addEventListener('pointerdown', handlePointerDown);
     canvas.addEventListener('pointermove', handlePointerMove);
@@ -64,7 +84,7 @@ const Whiteboard = ({ boardId }) => {
       canvas.removeEventListener('pointerup', handlePointerUp);
       canvas.removeEventListener('pointerleave', handlePointerUp);
     };
-  }, [isDrawing, lastPos, color, isEraser, pathBuffer]);
+  });
 
   const detectScribble = (path) => {
     if (path.length < 10) return;
@@ -80,14 +100,14 @@ const Whiteboard = ({ boardId }) => {
     const area = (maxX - minX) * (maxY - minY);
     const tight = area < 10000;
 
-    const turnCount = path.reduce((count, _, i, arr) => {
-      if (i < 2) return count;
+    const turns = path.reduce((acc, _, i, arr) => {
+      if (i < 2) return acc;
       const a = arr[i - 2], b = arr[i - 1], c = arr[i];
-      const angle = Math.abs(Math.atan2(c.y - b.y, c.x - b.x) - Math.atan2(b.y - a.y, b.x - a.x));
-      return count + (angle > 0.7 ? 1 : 0);
+      const ang = Math.abs(Math.atan2(c.y - b.y, c.x - b.x) - Math.atan2(b.y - a.y, b.x - a.x));
+      return acc + (ang > 0.7 ? 1 : 0);
     }, 0);
 
-    if (tight && turnCount > 8) {
+    if (tight && turns > 8) {
       const ctx = canvasRef.current.getContext('2d');
       ctx.clearRect(minX - 20, minY - 20, maxX - minX + 40, maxY - minY + 40);
       setPathBuffer([]);
@@ -96,19 +116,30 @@ const Whiteboard = ({ boardId }) => {
 
   return (
     <>
-      <canvas ref={canvasRef} style={{ position: 'fixed', top: 0, left: 0, zIndex: 0 }} />
+      <canvas
+        ref={canvasRef}
+        style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          width: '100vw',
+          height: '100vh',
+          touchAction: 'none',
+          zIndex: 0
+        }}
+      />
 
       <div style={{
         position: 'fixed',
         top: 10,
         left: 10,
-        display: 'flex',
-        gap: 10,
         zIndex: 10,
         backgroundColor: 'white',
         padding: 10,
         borderRadius: 8,
-        boxShadow: '0 2px 5px rgba(0,0,0,0.3)'
+        boxShadow: '0 2px 5px rgba(0,0,0,0.3)',
+        display: 'flex',
+        gap: 10
       }}>
         {['#000000', '#ff0000', '#00cc00', '#0000ff', '#ffff00', '#ff00ff'].map(c => (
           <button
